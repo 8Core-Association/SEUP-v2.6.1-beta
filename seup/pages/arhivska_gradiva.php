@@ -102,6 +102,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 }
+    if ($action === 'delete_gradivo') {
+        header('Content-Type: application/json');
+        ob_end_clean();
+        
+        $rowid = GETPOST('rowid', 'int');
+        
+        if (!$rowid) {
+            echo json_encode(['success' => false, 'error' => 'Missing ID']);
+            exit;
+        }
+        
+        $db->begin();
+        $sql = "DELETE FROM " . MAIN_DB_PREFIX . "a_arhivska_gradiva WHERE rowid = " . (int)$rowid;
+        $result = $db->query($sql);
+        
+        if ($result) {
+            $db->commit();
+            echo json_encode([
+                'success' => true,
+                'message' => 'Arhivsko gradivo je uspješno obrisano'
+            ]);
+        } else {
+            $db->rollback();
+            echo json_encode([
+                'success' => false,
+                'error' => 'Greška pri brisanju: ' . $db->lasterror()
+            ]);
+        }
+        exit;
+    }
 
 // Fetch sorting parameters
 $sortField = GETPOST('sort', 'aZ09') ?: 'oznaka';
@@ -295,6 +325,9 @@ if (count($gradiva)) {
         print '<button class="seup-action-btn seup-btn-edit" title="Uredi" data-id="' . $gradivo->rowid . '">';
         print '<i class="fas fa-edit"></i>';
         print '</button>';
+        print '<button class="seup-action-btn seup-btn-delete" title="Obriši" data-id="' . $gradivo->rowid . '">';
+        print '<i class="fas fa-trash"></i>';
+        print '</button>';
         print '</div>';
         print '</td>';
 
@@ -356,6 +389,32 @@ print '<div class="seup-modal-footer">';
 print '<button type="button" class="seup-btn seup-btn-secondary" id="closeDetailsBtn">Zatvori</button>';
 print '<button type="button" class="seup-btn seup-btn-primary" id="editGradivoBtn">';
 print '<i class="fas fa-edit me-2"></i>Uredi';
+print '</button>';
+print '</div>';
+print '</div>';
+print '</div>';
+
+// Delete Modal
+print '<div class="seup-modal" id="deleteModal">';
+print '<div class="seup-modal-content">';
+print '<div class="seup-modal-header">';
+print '<h5 class="seup-modal-title"><i class="fas fa-trash me-2"></i>Brisanje Arhivskog Gradiva</h5>';
+print '<button type="button" class="seup-modal-close" id="closeDeleteModal">&times;</button>';
+print '</div>';
+print '<div class="seup-modal-body">';
+print '<div class="seup-delete-info">';
+print '<div class="seup-delete-oznaka" id="deleteOznaka">ARH-001</div>';
+print '<div class="seup-delete-vrsta" id="deleteVrsta">Vrsta gradiva</div>';
+print '<div class="seup-delete-warning">';
+print '<i class="fas fa-exclamation-triangle me-2"></i>';
+print '<strong>PAŽNJA:</strong> Ova akcija je nepovratna! Arhivsko gradivo će biti trajno obrisano.';
+print '</div>';
+print '</div>';
+print '</div>';
+print '<div class="seup-modal-footer">';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="cancelDeleteBtn">Odustani</button>';
+print '<button type="button" class="seup-btn seup-btn-danger" id="confirmDeleteBtn">';
+print '<i class="fas fa-trash me-2"></i>Trajno Obriši';
 print '</button>';
 print '</div>';
 print '</div>';
@@ -478,6 +537,21 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
 
+    // Delete button handlers
+    document.querySelectorAll('.seup-btn-delete').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = this.dataset.id;
+            const row = this.closest('.seup-table-row');
+            const oznakaCell = row.querySelector('.clickable-name');
+            const vrstaCell = row.querySelector('.seup-gradivo-info');
+            
+            const oznaka = oznakaCell ? oznakaCell.textContent.trim() : 'N/A';
+            const vrsta = vrstaCell ? vrstaCell.textContent.trim() : 'N/A';
+            
+            openDeleteModal(id, oznaka, vrsta);
+        });
+    });
+
     // Export handler
     document.getElementById('exportBtn').addEventListener('click', function() {
         this.classList.add('seup-loading');
@@ -490,6 +564,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // Modal functionality
     let currentGradivoId = null;
+    let currentDeleteId = null;
 
     function openDetailsModal(gradivoId) {
         currentGradivoId = gradivoId;
@@ -506,6 +581,71 @@ document.addEventListener("DOMContentLoaded", function() {
         const modal = document.getElementById('detailsModal');
         modal.classList.remove('show');
         currentGradivoId = null;
+    }
+
+    function openDeleteModal(gradivoId, oznaka, vrsta) {
+        currentDeleteId = gradivoId;
+        
+        // Update modal content
+        document.getElementById('deleteOznaka').textContent = oznaka;
+        document.getElementById('deleteVrsta').textContent = vrsta;
+        
+        // Show modal
+        document.getElementById('deleteModal').classList.add('show');
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('show');
+        currentDeleteId = null;
+    }
+
+    function confirmDelete() {
+        if (!currentDeleteId) return;
+        
+        const confirmBtn = document.getElementById('confirmDeleteBtn');
+        confirmBtn.classList.add('seup-loading');
+        
+        const formData = new FormData();
+        formData.append('action', 'delete_gradivo');
+        formData.append('rowid', currentDeleteId);
+        
+        fetch('', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove row from table with animation
+                const row = document.querySelector(`[data-id="${currentDeleteId}"]`);
+                if (row) {
+                    row.style.animation = 'fadeOut 0.5s ease-out';
+                    setTimeout(() => {
+                        row.remove();
+                        updateVisibleCount();
+                    }, 500);
+                }
+                
+                showMessage(data.message, 'success');
+                closeDeleteModal();
+            } else {
+                showMessage('Greška pri brisanju: ' + data.error, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Delete error:', error);
+            showMessage('Došlo je do greške pri brisanju', 'error');
+        })
+        .finally(() => {
+            confirmBtn.classList.remove('seup-loading');
+        });
+    }
+
+    function updateVisibleCount() {
+        const visibleRows = document.querySelectorAll('.seup-table-row[data-id]:not([style*="display: none"])');
+        if (visibleCountSpan) {
+            visibleCountSpan.textContent = visibleRows.length;
+        }
     }
 
     function loadGradivoDetails(gradivoId) {
@@ -588,11 +728,21 @@ document.addEventListener("DOMContentLoaded", function() {
     // Modal event listeners
     document.getElementById('closeDetailsModal').addEventListener('click', closeDetailsModal);
     document.getElementById('closeDetailsBtn').addEventListener('click', closeDetailsModal);
+    
+    document.getElementById('closeDeleteModal').addEventListener('click', closeDeleteModal);
+    document.getElementById('cancelDeleteBtn').addEventListener('click', closeDeleteModal);
+    document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
 
     // Close modal when clicking outside
     document.getElementById('detailsModal').addEventListener('click', function(e) {
         if (e.target === this) {
             closeDetailsModal();
+        }
+    });
+    
+    document.getElementById('deleteModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeDeleteModal();
         }
     });
 
@@ -675,6 +825,81 @@ document.addEventListener("DOMContentLoaded", function() {
 /* Table header color for archive theme */
 .seup-table-header {
   background: linear-gradient(135deg, var(--warning-500), var(--warning-600));
+}
+
+/* Delete Modal Styles */
+.seup-delete-info {
+  background: var(--error-50);
+  border: 1px solid var(--error-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.seup-delete-oznaka {
+  font-family: var(--font-family-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--error-800);
+  margin-bottom: var(--space-2);
+}
+
+.seup-delete-vrsta {
+  font-size: var(--text-base);
+  color: var(--secondary-700);
+  margin-bottom: var(--space-3);
+  font-weight: var(--font-medium);
+}
+
+.seup-delete-warning {
+  font-size: var(--text-sm);
+  color: var(--error-700);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* Delete button styling */
+.seup-btn-delete {
+  background: var(--error-100);
+  color: var(--error-600);
+}
+
+.seup-btn-delete:hover {
+  background: var(--error-200);
+  color: var(--error-700);
+  transform: scale(1.1);
+}
+
+/* Delete modal header */
+#deleteModal .seup-modal-header {
+  background: linear-gradient(135deg, var(--error-500), var(--error-600));
+}
+
+/* Danger button variant */
+.seup-btn-danger {
+  background: linear-gradient(135deg, var(--error-500), var(--error-600));
+  color: white;
+  box-shadow: var(--shadow-md);
+}
+
+.seup-btn-danger:hover {
+  background: linear-gradient(135deg, var(--error-600), var(--error-700));
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  color: white;
+  text-decoration: none;
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-100px);
+  }
 }
 
 /* Responsive design */
