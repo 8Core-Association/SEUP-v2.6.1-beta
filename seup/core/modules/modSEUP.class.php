@@ -461,6 +461,22 @@ $this->menu[$r++] = array(
     'picto'    => 'user'
 );
 
+// 7.1) Arhivska Gradiva
+$this->menu[$r++] = array(
+    'fk_menu'  => 'fk_mainmenu=seup',
+    'type'     => 'left',
+    'titre'    => 'Arh Građa',
+    'mainmenu' => 'seup',
+    'leftmenu' => 'arhivska_gradiva',
+    'url'      => './seup/pages/arhivska_gradiva.php',
+    'langs'    => 'seup@seup',
+    'position' => 1107,
+    'enabled'  => '1',
+    'perms'    => '1',
+    'user'     => 2,
+    'picto'    => 'archive'
+);
+
 // 8) Postavke
 $this->menu[$r++] = array(
     'fk_menu'  => 'fk_mainmenu=seup',
@@ -470,7 +486,7 @@ $this->menu[$r++] = array(
     'leftmenu' => 'postavke',
     'url'      => './seup/pages/postavke.php',
     'langs'    => 'seup@seup',
-    'position' => 1108,
+    'position' => 1109,
     'enabled'  => '1',
     'perms'    => '1',
     'user'     => 2,
@@ -486,7 +502,7 @@ $this->menu[$r++] = array(
     'leftmenu' => 'podrska',
     'url'      => '/custom/seup/seupindex.php?mainmenu=seup&leftmenu=podrska',
     'langs'    => 'seup@seup',
-    'position' => 1109,
+    'position' => 1110,
     'enabled'  => '1',
     'perms'    => '1',
     'user'     => 2,
@@ -502,7 +518,7 @@ $this->menu[$r++] = array(
     'leftmenu' => 'podrska_prirucnik',
     'url'      => 'https://dokumentacija.8core.hr" target="_blank',
     'langs'    => 'seup@seup',
-    'position' => 1110,
+    'position' => 1111,
     'enabled'  => '1',
     'perms'    => '1',
     'user'     => 2,
@@ -518,7 +534,7 @@ $this->menu[$r++] = array(
     'leftmenu' => 'podrska_o_programu',
     'url'      => './seup/pages/o_programu.php',
     'langs'    => 'seup@seup',
-    'position' => 1111,
+    'position' => 1112,
     'enabled'  => '1',
     'perms'    => '1',
     'user'     => 2,
