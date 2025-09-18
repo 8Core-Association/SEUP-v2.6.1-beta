@@ -78,6 +78,19 @@ $db->query("CREATE TABLE IF NOT EXISTS `".$db->escape($TABLE_POS)."`(
   UNIQUE KEY `uq_oib` (`oib`)
 ) ENGINE=InnoDB");
 
+// === Create-if-not-exists tablica za Vrste Arhivskog Gradiva (a_arhivska_gradiva) ===
+$TABLE_ARH = seup_db_prefix($db) . 'a_arhivska_gradiva';
+$db->query("CREATE TABLE IF NOT EXISTS `".$db->escape($TABLE_ARH)."`(
+  `rowid` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `oznaka` VARCHAR(100) NOT NULL,
+  `vrsta_gradiva` VARCHAR(255) NOT NULL,
+  `opisi_napomene` TEXT DEFAULT NULL,
+  `datec` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `tms` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY(`rowid`),
+  UNIQUE KEY `uq_oznaka` (`oznaka`)
+) ENGINE=InnoDB");
+
 // === Osn. varijable ===
 $action = GETPOST('action', 'aZ09');
 $form = new Form($db);
@@ -284,6 +297,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       setEventMessages(implode(' ',$errs), null, 'errors');
     }
   }
+
+  // 5) VRSTE ARHIVSKOG GRADIVA – NOVI HANDLER
+  if (isset($_POST['action_arhivska_gradiva'])) {
+    $act = GETPOST('action_arhivska_gradiva','alpha'); // add|update|delete
+    $rowid = (int) GETPOST('rowid','int');
+    $oznaka = trim(GETPOST('ag_oznaka','alphanohtml'));
+    $vrsta_gradiva = trim(GETPOST('ag_vrsta_gradiva','restricthtml'));
+    $opisi_napomene = trim(GETPOST('ag_opisi_napomene','restricthtml'));
+
+    // Validacije
+    $errs = array();
+    if ($act==='add' || $act==='update') {
+      if ($oznaka==='') $errs[] = "Oznaka je obavezna.";
+      if ($vrsta_gradiva==='') $errs[] = "Vrsta gradiva je obavezna.";
+    }
+    if (empty($errs)) {
+      if ($act==='add') {
+        $db->begin();
+        $chk = $db->query("SELECT rowid FROM `".$db->escape($TABLE_ARH)."` WHERE oznaka='".$db->escape($oznaka)."' LIMIT 1");
+        if ($chk && $db->num_rows($chk)>0) { $db->rollback(); setEventMessages("Postoji zapis s istom oznakom.", null, 'errors'); }
+        else {
+          $sql = "INSERT INTO `".$db->escape($TABLE_ARH)."` (oznaka,vrsta_gradiva,opisi_napomene,datec) VALUES ('".$db->escape($oznaka)."','".$db->escape($vrsta_gradiva)."',".($opisi_napomene!==''?"'".$db->escape($opisi_napomene)."'":"NULL").",NOW())";
+          $ok = $db->query($sql);
+          if ($ok) { $db->commit(); header("Location: ".$_SERVER['PHP_SELF']."?tab=arhivska_gradiva&msg=created"); exit; }
+          else { $db->rollback(); setEventMessages("Greška pri spremanju.", null, 'errors'); }
+        }
+      } elseif ($act==='update') {
+        if ($rowid<=0) setEventMessages("Nedostaje ID zapisa.", null, 'errors');
+        else {
+          $db->begin();
+          $chk = $db->query("SELECT rowid FROM `".$db->escape($TABLE_ARH)."` WHERE oznaka='".$db->escape($oznaka)."' AND rowid!=".(int)$rowid." LIMIT 1");
+          if ($chk && $db->num_rows($chk)>0) { $db->rollback(); setEventMessages("Oznaka već postoji na drugom zapisu.", null, 'errors'); $rowid=0; }
+          if ($rowid>0) {
+            $sql = "UPDATE `".$db->escape($TABLE_ARH)."` SET
+                    oznaka='".$db->escape($oznaka)."',
+                    vrsta_gradiva='".$db->escape($vrsta_gradiva)."',
+                    opisi_napomene=".($opisi_napomene!==''?"'".$db->escape($opisi_napomene)."'":"NULL")."
+                    WHERE rowid=".(int)$rowid." LIMIT 1";
+            $ok = $db->query($sql);
+            if ($ok) { $db->commit(); header("Location: ".$_SERVER['PHP_SELF']."?tab=arhivska_gradiva&msg=updated"); exit; }
+            else { $db->rollback(); setEventMessages("Greška pri ažuriranju.", null, 'errors'); }
+          }
+        }
+      } elseif ($act==='delete') {
+        $id = (int) GETPOST('id','int');
+        if ($id>0) {
+          $db->begin();
+          $ok = $db->query("DELETE FROM `".$db->escape($TABLE_ARH)."` WHERE rowid=".$id." LIMIT 1");
+          if ($ok) { $db->commit(); header("Location: ".$_SERVER['PHP_SELF']."?tab=arhivska_gradiva&msg=deleted"); exit; }
+          else { $db->rollback(); setEventMessages("Brisanje nije uspjelo.", null, 'errors'); }
+        } else setEventMessages("Nedostaje ID za brisanje.", null, 'errors');
+      }
+    } else {
+      setEventMessages(implode(' ',$errs), null, 'errors');
+    }
+  }
 }
 
 // Flash messages za Treće Osobe
@@ -291,6 +360,11 @@ $flash = GETPOST('msg','alphanohtml');
 if ($flash==='created') setEventMessages('Zapis je dodan.', null, 'mesgs');
 if ($flash==='updated') setEventMessages('Zapis je ažuriran.', null, 'mesgs');
 if ($flash==='deleted') setEventMessages('Zapis je obrisan.', null, 'mesgs');
+
+// Flash messages za Arhivska Gradiva
+if ($flash==='created') setEventMessages('Vrsta arhivskog gradiva je dodana.', null, 'mesgs');
+if ($flash==='updated') setEventMessages('Vrsta arhivskog gradiva je ažurirana.', null, 'mesgs');
+if ($flash==='deleted') setEventMessages('Vrsta arhivskog gradiva je obrisana.', null, 'mesgs');
 
 // === UI ===
 print '<main class="seup-settings-hero">';
@@ -370,6 +444,31 @@ print '</form>';
 
 
 print '</div>'; // card Treće osobe
+
+// === Card: Vrste Arhivskog Gradiva ===
+print '<div class="seup-settings-card seup-card-wide">';
+print '<div class="seup-card-header"><div class="seup-card-icon"><i class="fas fa-archive"></i></div><h3 class="seup-card-title">Vrste Arhivskog Gradiva</h3><p class="seup-card-description">Upravljanje vrstama arhivskog gradiva i dokumentacije</p></div>';
+
+// Edit fetch za arhivska gradiva
+$A = null; $edit_arh = (int) GETPOST('edit_arh','int');
+if ($edit_arh>0) { $res=$db->query("SELECT * FROM `".$db->escape($TABLE_ARH)."` WHERE rowid=".$edit_arh." LIMIT 1"); if ($res) $A=$db->fetch_object($res); }
+
+print '<form method="post" action="'.$_SERVER['PHP_SELF'].'" class="seup-form">';
+if ($A) print '<input type="hidden" name="rowid" value="'.(int)$A->rowid.'">';
+print '<div class="seup-form-grid seup-grid-2">';
+print '<div class="seup-form-group"><label class="seup-label">Oznaka *</label><input type="text" name="ag_oznaka" class="seup-input" required value="'.$V($A?$A->oznaka:'').'" placeholder="Unesite oznaku"></div>';
+print '<div class="seup-form-group"><label class="seup-label">Vrsta Gradiva *</label><input type="text" name="ag_vrsta_gradiva" class="seup-input" required value="'.$V($A?$A->vrsta_gradiva:'').'" placeholder="Unesite vrstu gradiva"></div>';
+print '</div>';
+print '<div class="seup-form-group"><label class="seup-label">Opisi/Napomene</label><textarea name="ag_opisi_napomene" class="seup-textarea" rows="4" placeholder="Unesite opise ili napomene...">'.$V($A?$A->opisi_napomene:'').'</textarea></div>';
+print '<div class="seup-form-actions">';
+print '<button type="submit" name="action_arhivska_gradiva" value="'.($A?'update':'add').'" class="seup-btn seup-btn-'.($A?'secondary':'primary').'"><i class="fas fa-'.($A?'edit':'plus').'"></i> '.($A?'Ažuriraj':'Dodaj').'</button>';
+print ' <button type="reset" class="seup-btn seup-btn-secondary" id="btnPonistiArh">Poništi</button>';
+if ($A) print ' <a class="seup-btn" href="'.$_SERVER['PHP_SELF'].'?tab=arhivska_gradiva">Odustani</a>';
+print '</div>';
+print '</form>';
+
+print '</div>'; // card Vrste Arhivskog Gradiva
+
 print '</div>'; // grid
 print '</div>'; // content
 
