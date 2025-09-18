@@ -92,12 +92,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $predmet_id = GETPOST('predmet_id', 'int');
         
+        // Debug logging
+        dol_syslog("ARHIVA DEBUG: Received predmet_id = " . $predmet_id, LOG_INFO);
+        
         if (!$predmet_id) {
+            dol_syslog("ARHIVA DEBUG: Missing predmet_id", LOG_ERR);
             echo json_encode(['success' => false, 'error' => 'Missing predmet ID']);
             exit;
         }
         
+        // Check if helper function exists
+        if (!method_exists('Predmet_helper', 'getArhivaDetails')) {
+            dol_syslog("ARHIVA DEBUG: Helper method getArhivaDetails does not exist", LOG_ERR);
+            echo json_encode(['success' => false, 'error' => 'Helper method not found']);
+            exit;
+        }
+        
+        dol_syslog("ARHIVA DEBUG: Calling getArhivaDetails with predmet_id = " . $predmet_id, LOG_INFO);
         $result = Predmet_helper::getArhivaDetails($db, $predmet_id);
+        dol_syslog("ARHIVA DEBUG: Result = " . json_encode($result), LOG_INFO);
+        
         echo json_encode($result);
         exit;
     }
@@ -786,6 +800,8 @@ document.addEventListener("DOMContentLoaded", function() {
     function openArhivaDetailsModal(arhivaId) {
         currentArhivaDetailsId = arhivaId;
         
+        console.log('Opening modal for predmet ID:', predmetId);
+        
         // Show modal
         const modal = document.getElementById('arhivaDetailsModal');
         modal.classList.add('show');
@@ -795,6 +811,8 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function closeArhivaDetailsModal() {
+        console.log('Loading details for predmet ID:', predmetId);
+        
         const modal = document.getElementById('arhivaDetailsModal');
         modal.classList.remove('show');
         currentArhivaDetailsId = null;
@@ -808,12 +826,20 @@ document.addEventListener("DOMContentLoaded", function() {
         formData.append('action', 'get_arhiva_details');
         formData.append('predmet_id', predmetId);
         
+        console.log('Sending FormData:', {
+            action: 'get_arhiva_details',
+            predmet_id: predmetId
+        });
+        
         fetch('', {
             method: 'POST',
             body: formData
         })
         .then(response => response.json())
+            console.log('Response status:', response.status);
+            console.log('Response headers:', response.headers);
         .then(data => {
+            console.log('Received data:', data);
             if (data.success) {
                 renderArhivaDetails(data.details);
             } else {
@@ -822,6 +848,7 @@ document.addEventListener("DOMContentLoaded", function() {
         })
         .catch(error => {
             console.error('Error loading arhiva details:', error);
+            console.log('Full error object:', error);
             content.innerHTML = '<div class="seup-alert seup-alert-error"><i class="fas fa-exclamation-triangle me-2"></i>Greška pri učitavanju detalja</div>';
         });
     }
