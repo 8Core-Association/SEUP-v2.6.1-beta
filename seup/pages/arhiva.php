@@ -806,7 +806,7 @@ document.addEventListener("DOMContentLoaded", function() {
         
         const formData = new FormData();
         formData.append('action', 'get_arhiva_details');
-        formData.append('arhiva_id', arhivaId);
+        formData.append('predmet_id', predmetId);
         
         fetch('', {
             method: 'POST',
