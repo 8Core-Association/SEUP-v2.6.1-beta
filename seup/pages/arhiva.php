@@ -86,6 +86,22 @@ if (isset($user->socid) && $user->socid > 0) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = GETPOST('action', 'alpha');
     
+    if ($action === 'get_arhiva_details') {
+        header('Content-Type: application/json');
+        ob_end_clean();
+        
+        $arhiva_id = GETPOST('arhiva_id', 'int');
+        
+        if (!$arhiva_id) {
+            echo json_encode(['success' => false, 'error' => 'Missing arhiva ID']);
+            exit;
+        }
+        
+        $result = Predmet_helper::getArhivaDetails($db, $arhiva_id);
+        echo json_encode($result);
+        exit;
+    }
+    
     if ($action === 'restore_predmet') {
         header('Content-Type: application/json');
         ob_end_clean();
@@ -329,7 +345,9 @@ if (count($arhivirani)) {
         
         // 3. Klasa
         print '<td class="seup-table-td">';
-        print '<span class="seup-badge seup-badge-archive seup-klasa-link">' . htmlspecialchars($arhiva->klasa_predmeta) . '</span>';
+        print '<span class="seup-badge seup-badge-archive seup-klasa-link clickable-klasa" data-arhiva-id="' . $arhiva->ID_arhive . '" title="Kliknite za detalje">';
+        print htmlspecialchars($arhiva->klasa_predmeta);
+        print '</span>';
         print '</td>';
         
         // 4. Naziv predmeta
@@ -500,6 +518,29 @@ print '</div>';
 print '</div>';
 print '</div>';
 
+// Detailed Archive Modal
+print '<div class="seup-modal seup-arhiva-details-modal" id="arhivaDetailsModal">';
+print '<div class="seup-modal-content">';
+print '<div class="seup-modal-header">';
+print '<h5 class="seup-modal-title"><i class="fas fa-info-circle me-2"></i>Detalji Arhiviranog Predmeta</h5>';
+print '<button type="button" class="seup-modal-close" id="closeArhivaDetailsModal">&times;</button>';
+print '</div>';
+print '<div class="seup-modal-body">';
+print '<div id="arhivaDetailsContent">';
+print '<div class="seup-loading-message">';
+print '<i class="fas fa-spinner fa-spin"></i> Učitavam detalje...';
+print '</div>';
+print '</div>';
+print '</div>';
+print '<div class="seup-modal-footer">';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="closeArhivaDetailsBtn">Zatvori</button>';
+print '<button type="button" class="seup-btn seup-btn-success" id="restoreFromDetailsBtn">';
+print '<i class="fas fa-undo me-2"></i>Vrati u Aktivne';
+print '</button>';
+print '</div>';
+print '</div>';
+print '</div>';
+
 // JavaScript for enhanced functionality
 print '<script src="/custom/seup/js/seup-modern.js"></script>';
 
@@ -663,6 +704,14 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
 
+    // Clickable klasa functionality
+    document.querySelectorAll('.clickable-klasa').forEach(klasaElement => {
+        klasaElement.addEventListener('click', function() {
+            const arhivaId = this.dataset.arhivaId;
+            openArhivaDetailsModal(arhivaId);
+        });
+    });
+
     // Action button handlers
     document.querySelectorAll('.seup-btn-restore').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -716,6 +765,195 @@ document.addEventListener("DOMContentLoaded", function() {
     // Modal functionality
     let currentRestoreId = null;
     let currentDeleteId = null;
+    let currentArhivaDetailsId = null;
+
+    function openArhivaDetailsModal(arhivaId) {
+        currentArhivaDetailsId = arhivaId;
+        
+        // Show modal
+        const modal = document.getElementById('arhivaDetailsModal');
+        modal.classList.add('show');
+        
+        // Load details
+        loadArhivaDetails(arhivaId);
+    }
+
+    function closeArhivaDetailsModal() {
+        const modal = document.getElementById('arhivaDetailsModal');
+        modal.classList.remove('show');
+        currentArhivaDetailsId = null;
+    }
+
+    function loadArhivaDetails(arhivaId) {
+        const content = document.getElementById('arhivaDetailsContent');
+        content.innerHTML = '<div class="seup-loading-message"><i class="fas fa-spinner fa-spin"></i> Učitavam detalje...</div>';
+        
+        const formData = new FormData();
+        formData.append('action', 'get_arhiva_details');
+        formData.append('arhiva_id', arhivaId);
+        
+        fetch('', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                renderArhivaDetails(data.details);
+            } else {
+                content.innerHTML = '<div class="seup-alert seup-alert-error"><i class="fas fa-exclamation-triangle me-2"></i>' + data.error + '</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading arhiva details:', error);
+            content.innerHTML = '<div class="seup-alert seup-alert-error"><i class="fas fa-exclamation-triangle me-2"></i>Greška pri učitavanju detalja</div>';
+        });
+    }
+
+    function renderArhivaDetails(details) {
+        const content = document.getElementById('arhivaDetailsContent');
+        
+        let html = '<div class="seup-arhiva-details">';
+        
+        // Header with klasa and naziv
+        html += '<div class="seup-details-header">';
+        html += '<div class="seup-details-avatar"><i class="fas fa-archive"></i></div>';
+        html += '<div class="seup-details-basic">';
+        html += '<h4>' + escapeHtml(details.klasa_predmeta) + '</h4>';
+        html += '<p class="seup-contact-person">' + escapeHtml(details.naziv_predmeta) + '</p>';
+        html += '</div>';
+        html += '</div>';
+        
+        // Details grid
+        html += '<div class="seup-details-grid">';
+        
+        // Kreator predmeta
+        html += '<div class="seup-detail-item">';
+        html += '<div class="seup-detail-label"><i class="fas fa-user-plus me-2"></i>Kreator Predmeta</div>';
+        html += '<div class="seup-detail-value">' + escapeHtml(details.kreator_predmeta || 'N/A') + '</div>';
+        html += '</div>';
+        
+        // Datum kreiranja predmeta
+        html += '<div class="seup-detail-item">';
+        html += '<div class="seup-detail-label"><i class="fas fa-calendar-plus me-2"></i>Predmet Otvoren</div>';
+        html += '<div class="seup-detail-value">' + (details.datum_otvaranja || 'N/A') + '</div>';
+        html += '</div>';
+        
+        // Pošiljatelj/Treća strana
+        if (details.posiljatelj_naziv) {
+            html += '<div class="seup-detail-item seup-detail-wide">';
+            html += '<div class="seup-detail-label"><i class="fas fa-paper-plane me-2"></i>Pošiljatelj</div>';
+            html += '<div class="seup-detail-value">' + escapeHtml(details.posiljatelj_naziv) + '</div>';
+            html += '</div>';
+        }
+        
+        // Zaprimljeno datum
+        if (details.zaprimljeno_datum) {
+            html += '<div class="seup-detail-item">';
+            html += '<div class="seup-detail-label"><i class="fas fa-inbox me-2"></i>Zaprimljeno</div>';
+            html += '<div class="seup-detail-value">' + details.zaprimljeno_datum + '</div>';
+            html += '</div>';
+        }
+        
+        // Tko je arhivirao
+        html += '<div class="seup-detail-item">';
+        html += '<div class="seup-detail-label"><i class="fas fa-user-check me-2"></i>Arhivirao</div>';
+        html += '<div class="seup-detail-value">' + escapeHtml(details.arhivirao_korisnik || 'N/A') + '</div>';
+        html += '</div>';
+        
+        // Datum arhiviranja (detaljno)
+        html += '<div class="seup-detail-item">';
+        html += '<div class="seup-detail-label"><i class="fas fa-archive me-2"></i>Datum Arhiviranja</div>';
+        html += '<div class="seup-detail-value">' + details.datum_arhiviranja_full + '</div>';
+        html += '</div>';
+        
+        // Vrsta arhivske građe
+        if (details.vrsta_gradiva) {
+            html += '<div class="seup-detail-item seup-detail-wide">';
+            html += '<div class="seup-detail-label"><i class="fas fa-archive me-2"></i>Vrsta Arhivske Građe</div>';
+            html += '<div class="seup-detail-value">';
+            html += '<strong>' + escapeHtml(details.arhivska_oznaka) + '</strong> - ' + escapeHtml(details.vrsta_gradiva);
+            html += '</div>';
+            html += '</div>';
+        }
+        
+        // Rok čuvanja i istek
+        html += '<div class="seup-detail-item">';
+        html += '<div class="seup-detail-label"><i class="fas fa-clock me-2"></i>Rok Čuvanja</div>';
+        html += '<div class="seup-detail-value">';
+        if (details.rok_cuvanja_godina == 0) {
+            html += '<span class="seup-badge seup-badge-success"><i class="fas fa-infinity me-1"></i>Trajno čuvanje</span>';
+        } else {
+            html += details.rok_cuvanja_godina + ' godina';
+            if (details.istek_datum) {
+                html += '<br><small class="text-muted">Istek: ' + details.istek_datum + '</small>';
+            }
+        }
+        html += '</div>';
+        html += '</div>';
+        
+        // Postupak po isteku
+        html += '<div class="seup-detail-item">';
+        html += '<div class="seup-detail-label"><i class="fas fa-cogs me-2"></i>Po Isteku Roka</div>';
+        html += '<div class="seup-detail-value">';
+        const postupakLabels = {
+            'predaja_arhivu': '🏛️ Predaja državnom arhivu',
+            'ibp_izlucivanje': '📋 IBP izlučivanje iz evidencije',
+            'ibp_brisanje': '🗑️ IBP trajno brisanje'
+        };
+        html += postupakLabels[details.postupak_po_isteku] || details.postupak_po_isteku;
+        html += '</div>';
+        html += '</div>';
+        
+        // Razlog arhiviranja
+        if (details.razlog_arhiviranja) {
+            html += '<div class="seup-detail-item seup-detail-wide">';
+            html += '<div class="seup-detail-label"><i class="fas fa-comment me-2"></i>Razlog Arhiviranja</div>';
+            html += '<div class="seup-detail-value">' + escapeHtml(details.razlog_arhiviranja) + '</div>';
+            html += '</div>';
+        }
+        
+        // Broj dokumenata
+        if (details.broj_dokumenata !== undefined) {
+            html += '<div class="seup-detail-item">';
+            html += '<div class="seup-detail-label"><i class="fas fa-file-alt me-2"></i>Dokumenti</div>';
+            html += '<div class="seup-detail-value">';
+            html += '<span class="seup-badge seup-badge-info">' + details.broj_dokumenata + ' dokumenata</span>';
+            html += '</div>';
+            html += '</div>';
+        }
+        
+        // Status warning ako je istekao rok
+        if (details.preostalo_godina !== null && details.preostalo_godina <= 0) {
+            html += '<div class="seup-detail-item seup-detail-wide">';
+            html += '<div class="seup-detail-warning">';
+            html += '<i class="fas fa-exclamation-triangle me-2"></i>';
+            html += '<strong>PAŽNJA:</strong> Rok čuvanja je istekao! Potrebno je poduzeti akciju prema definiranom postupku.';
+            html += '</div>';
+            html += '</div>';
+        } else if (details.preostalo_godina !== null && details.preostalo_godina <= 1) {
+            html += '<div class="seup-detail-item seup-detail-wide">';
+            html += '<div class="seup-detail-info">';
+            html += '<i class="fas fa-info-circle me-2"></i>';
+            html += '<strong>INFO:</strong> Rok čuvanja ističe uskoro. Pripremite se za postupak po isteku.';
+            html += '</div>';
+            html += '</div>';
+        }
+        
+        html += '</div>'; // seup-details-grid
+        html += '</div>'; // seup-arhiva-details
+        
+        content.innerHTML = html;
+        
+        // Update restore button
+        const restoreBtn = document.getElementById('restoreFromDetailsBtn');
+        if (restoreBtn) {
+            restoreBtn.onclick = function() {
+                closeArhivaDetailsModal();
+                openRestoreModal(currentArhivaDetailsId, details.klasa_predmeta, details.naziv_predmeta);
+            };
+        }
+    }
 
     function openRestoreModal(arhivaId, klasa, naziv) {
         currentRestoreId = arhivaId;
@@ -841,6 +1079,9 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // Modal event listeners
+    document.getElementById('closeArhivaDetailsModal').addEventListener('click', closeArhivaDetailsModal);
+    document.getElementById('closeArhivaDetailsBtn').addEventListener('click', closeArhivaDetailsModal);
+    
     document.getElementById('closeRestoreModal').addEventListener('click', closeRestoreModal);
     document.getElementById('cancelRestoreBtn').addEventListener('click', closeRestoreModal);
     document.getElementById('confirmRestoreBtn').addEventListener('click', confirmRestore);
@@ -850,6 +1091,12 @@ document.addEventListener("DOMContentLoaded", function() {
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
 
     // Close modals when clicking outside
+    document.getElementById('arhivaDetailsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeArhivaDetailsModal();
+        }
+    });
+    
     document.getElementById('restoreModal').addEventListener('click', function(e) {
         if (e.target === this) {
             closeRestoreModal();
@@ -927,6 +1174,15 @@ document.addEventListener("DOMContentLoaded", function() {
   color: var(--warning-800);
   font-family: var(--font-family-mono);
   font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.seup-badge-archive:hover {
+  background: var(--warning-200);
+  color: var(--warning-900);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
 }
 
 /* New badge variants for archive page */
@@ -1578,6 +1834,149 @@ document.addEventListener("DOMContentLoaded", function() {
   to {
     opacity: 0;
     transform: translateX(-100px);
+  }
+}
+
+/* Arhiva Details Modal Styles */
+.seup-arhiva-details-modal .seup-modal-content {
+  max-width: 800px;
+  width: 95%;
+}
+
+.seup-arhiva-details-modal .seup-modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.seup-arhiva-details {
+  font-family: var(--font-family-sans);
+}
+
+.seup-details-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  background: var(--warning-50);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--warning-200);
+}
+
+.seup-details-avatar {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, var(--warning-500), var(--warning-600));
+  border-radius: var(--radius-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.seup-details-basic h4 {
+  margin: 0 0 var(--space-1) 0;
+  color: var(--warning-800);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-family-mono);
+}
+
+.seup-contact-person {
+  margin: 0;
+  color: var(--warning-700);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.seup-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.seup-detail-item {
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  transition: all var(--transition-normal);
+}
+
+.seup-detail-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--warning-200);
+}
+
+.seup-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.seup-detail-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--secondary-600);
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.seup-detail-value {
+  font-size: var(--text-base);
+  color: var(--secondary-900);
+  font-weight: var(--font-medium);
+  word-break: break-word;
+  line-height: var(--leading-relaxed);
+}
+
+.seup-detail-warning {
+  background: var(--error-50);
+  border: 1px solid var(--error-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  color: var(--error-800);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.seup-detail-info {
+  background: var(--primary-50);
+  border: 1px solid var(--primary-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  color: var(--primary-800);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* Arhiva details modal header */
+#arhivaDetailsModal .seup-modal-header {
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+}
+
+/* Responsive design for details modal */
+@media (max-width: 768px) {
+  .seup-arhiva-details-modal .seup-modal-content {
+    width: 98%;
+    margin: var(--space-2);
+  }
+  
+  .seup-details-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .seup-details-header {
+    flex-direction: column;
+    text-align: center;
   }
 }
 </style>
