@@ -412,20 +412,12 @@ print '</div>';
 
 print '<div class="seup-form-group">';
 print '<label class="seup-label"><i class="fas fa-clock me-2"></i>Postupak po isteku roka čuvanja *</label>';
-print '<div class="seup-radio-group">';
-print '<label class="seup-radio-option">';
-print '<input type="radio" name="postupak_po_isteku" value="predaja_arhivu" checked>';
-print '<span class="seup-radio-label">🏛️ Predaja arhivu</span>';
-print '</label>';
-print '<label class="seup-radio-option">';
-print '<input type="radio" name="postupak_po_isteku" value="ibp_izlucivanje">';
-print '<span class="seup-radio-label">📋 IBP izlučivanje</span>';
-print '</label>';
-print '<label class="seup-radio-option">';
-print '<input type="radio" name="postupak_po_isteku" value="ibp_brisanje">';
-print '<span class="seup-radio-label">🗑️ IBP trajno brisanje</span>';
-print '</label>';
-print '</div>';
+print '<select id="postupakPoIsteku" class="seup-select" required>';
+print '<option value="">-- Odaberite postupak --</option>';
+print '<option value="predaja_arhivu" selected>🏛️ Predaja arhivu</option>';
+print '<option value="ibp_izlucivanje">📋 IBP izlučivanje</option>';
+print '<option value="ibp_brisanje">🗑️ IBP trajno brisanje</option>';
+print '</select>';
 print '</div>';
 
 print '<div class="seup-form-group">';
@@ -641,7 +633,7 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('archiveModal').classList.remove('show');
         document.getElementById('archiveRazlog').value = '';
         document.getElementById('arhivskaGradiva').value = '';
-        document.querySelector('input[name="postupak_po_isteku"][value="predaja_arhivu"]').checked = true;
+        document.getElementById('postupakPoIsteku').value = '';
         currentArchiveId = null;
     }
 
@@ -649,13 +641,18 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!currentArchiveId) return;
         
         const arhivskaGradiva = document.getElementById('arhivskaGradiva').value;
-        const postupakPoIsteku = document.querySelector('input[name="postupak_po_isteku"]:checked').value;
+        const postupakPoIsteku = document.getElementById('postupakPoIsteku').value;
         const razlog = document.getElementById('archiveRazlog').value.trim();
         const confirmBtn = document.getElementById('confirmArchiveBtn');
         
         // Validation
         if (!arhivskaGradiva) {
             showMessage('Molimo odaberite vrstu arhivske građe', 'error');
+            return;
+        }
+        
+        if (!postupakPoIsteku) {
+            showMessage('Molimo odaberite postupak po isteku roka', 'error');
             return;
         }
         
@@ -1267,44 +1264,9 @@ document.addEventListener("DOMContentLoaded", function() {
 }
 
 /* Radio group styling */
-.seup-radio-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.seup-radio-option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  background: white;
-}
-
-.seup-radio-option:hover {
-  border-color: var(--primary-500);
-  background: var(--primary-50);
-}
-
-.seup-radio-option input[type="radio"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--primary-500);
-}
-
-.seup-radio-option input[type="radio"]:checked + .seup-radio-label {
-  font-weight: var(--font-semibold);
-  color: var(--primary-700);
-}
-
-.seup-radio-label {
-  font-size: var(--text-sm);
-  color: var(--secondary-700);
-  cursor: pointer;
+/* Postupak select styling */
+#postupakPoIsteku {
+  width: 100%;
 }
 
 .seup-archive-naziv {

@@ -124,7 +124,7 @@ $sortField = GETPOST('sort', 'aZ09') ?: 'datum_arhiviranja';
 $sortOrder = GETPOST('order', 'aZ09') ?: 'DESC';
 
 // Validate sort fields
-$allowedSortFields = ['ID_arhive', 'klasa_predmeta', 'naziv_predmeta', 'broj_dokumenata', 'datum_arhiviranja'];
+$allowedSortFields = ['ID_arhive', 'klasa_predmeta', 'naziv_predmeta', 'datum_arhiviranja', 'arhivska_oznaka'];
 if (!in_array($sortField, $allowedSortFields)) {
     $sortField = 'datum_arhiviranja';
 }
@@ -142,10 +142,8 @@ $sql = "SELECT
             DATE_FORMAT(a.datum_arhiviranja, '%d.%m.%y') as datum_arhiviranja_short,
             a.datum_arhiviranja,
             ag.oznaka as arhivska_oznaka,
-            ag.vrsta_gradiva,
-            CONCAT(u.firstname, ' ', u.lastname) as arhivirao_korisnik
+            ag.vrsta_gradiva
         FROM " . MAIN_DB_PREFIX . "a_arhiva a
-        LEFT JOIN " . MAIN_DB_PREFIX . "user u ON a.fk_user_arhivirao = u.rowid
         LEFT JOIN " . MAIN_DB_PREFIX . "a_arhivska_gradiva ag ON a.fk_arhivska_gradiva = ag.rowid
         WHERE a.status_arhive = 'active'
         ORDER BY {$sortField} {$sortOrder}";
@@ -284,7 +282,7 @@ function sortableHeader($field, $label, $currentSort, $currentOrder, $icon = '')
 }
 
 // Generate sortable headers with icons
-print '<th class="seup-table-th"><i class="fas fa-tag me-2"></i>Ozn.</th>';
+print sortableHeader('arhivska_oznaka', 'Ozn.', $sortField, $sortOrder, 'fas fa-tag');
 print '<th class="seup-table-th"><i class="fas fa-archive me-2"></i>Vrsta Građe</th>';
 print sortableHeader('klasa_predmeta', 'Klasa', $sortField, $sortOrder, 'fas fa-layer-group');
 print sortableHeader('naziv_predmeta', 'Naziv predmeta', $sortField, $sortOrder, 'fas fa-heading');
@@ -292,7 +290,7 @@ print sortableHeader('datum_arhiviranja', 'Datum', $sortField, $sortOrder, 'fas 
 print '<th class="seup-table-th"><i class="fas fa-clock me-2"></i>Čuvanje</th>';
 print '<th class="seup-table-th"><i class="fas fa-hourglass me-2"></i>Istek</th>';
 print '<th class="seup-table-th"><i class="fas fa-cogs me-2"></i>Po isteku</th>';
-print '<th class="seup-table-th"><i class="fas fa-cogs me-2"></i>Akcije</th>';
+print '<th class="seup-table-th"><i class="fas fa-tools me-2"></i>Akcije</th>';
 print '</tr>';
 print '</thead>';
 print '<tbody class="seup-table-body">';
@@ -393,16 +391,8 @@ if (count($arhivirani)) {
         print '<span class="seup-badge ' . $postupakColors[$postupak] . '" title="' . $postupakLabels[$postupak] . '">';
         print '<i class="' . $postupakIcons[$postupak] . ' me-1"></i>' . $postupakLabels[$postupak];
         print '</span>';
-        print '</div>';
         print '</td>';
         
-        print '<td class="seup-table-td">';
-        print '<div class="seup-user-info">';
-        print '<i class="fas fa-user-circle me-2"></i>';
-        print $arhiva->arhivirao_korisnik ?: 'N/A';
-        print '</div>';
-        print '</td>';
-
         // Action buttons
         print '<td class="seup-table-td">';
         print '<div class="seup-action-buttons">';
@@ -419,7 +409,7 @@ if (count($arhivirani)) {
     }
 } else {
     print '<tr class="seup-table-row">';
-    print '<td colspan="9" class="seup-table-empty">';
+    print '<td colspan="8" class="seup-table-empty">';
     print '<div class="seup-empty-state">';
     print '<i class="fas fa-archive seup-empty-icon"></i>';
     print '<h4 class="seup-empty-title">Nema arhiviranih predmeta</h4>';
