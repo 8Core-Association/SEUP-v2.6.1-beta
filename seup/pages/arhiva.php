@@ -90,6 +90,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Content-Type: application/json');
         ob_end_clean();
         
+        $predmet_id = GETPOST('predmet_id', 'int');
+        
+        if (!$predmet_id) {
+            echo json_encode(['success' => false, 'error' => 'Missing predmet ID']);
+            exit;
+        }
+        
+        $result = Predmet_helper::getArhivaDetails($db, $predmet_id);
+        echo json_encode($result);
+        exit;
+    }
+    
+    if ($action === 'get_arhiva_details') {
+        header('Content-Type: application/json');
+        ob_end_clean();
+        
         $arhiva_id = GETPOST('arhiva_id', 'int');
         
         if (!$arhiva_id) {
