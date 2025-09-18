@@ -807,7 +807,7 @@ document.addEventListener("DOMContentLoaded", function() {
         modal.classList.add('show');
         
         // Load details
-        loadArhivaDetails(arhivaId);
+        loadArhivaDetails(predmetId);
     }
 
     function closeArhivaDetailsModal() {
@@ -815,7 +815,8 @@ document.addEventListener("DOMContentLoaded", function() {
         
         const modal = document.getElementById('arhivaDetailsModal');
         modal.classList.remove('show');
-        currentArhivaDetailsId = null;
+    function loadArhivaDetails(predmetId) {
+        console.log('Loading details for predmet ID:', predmetId);
     }
 
     function loadArhivaDetails(arhivaId) {
@@ -837,9 +838,11 @@ document.addEventListener("DOMContentLoaded", function() {
         })
         .then(response => response.json())
             console.log('Response status:', response.status);
+            console.log('Response status:', response.status);
             console.log('Response headers:', response.headers);
         .then(data => {
             console.log('Received data:', data);
+            console.log('Response data:', data);
             if (data.success) {
                 renderArhivaDetails(data.details);
             } else {
