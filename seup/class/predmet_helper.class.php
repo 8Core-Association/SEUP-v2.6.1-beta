@@ -1069,6 +1069,82 @@ class Predmet_helper
         
         return $options;
     }
+
+    /**
+     * Get detailed arhiva information for modal display
+     */
+    public static function getArhivaDetails($db, $arhiva_id)
+    {
+        try {
+            $sql = "SELECT 
+                        a.ID_arhive,
+                        a.ID_predmeta,
+                        a.klasa_predmeta,
+                        a.naziv_predmeta,
+                        a.razlog_arhiviranja,
+                        a.postupak_po_isteku,
+                        a.rok_cuvanja_godina,
+                        DATE_FORMAT(a.datum_arhiviranja, '%d.%m.%Y %H:%i:%s') as datum_arhiviranja_full,
+                        ag.oznaka as arhivska_oznaka,
+                        ag.vrsta_gradiva,
+                        CONCAT(u_arhiva.firstname, ' ', u_arhiva.lastname) as arhivirao_korisnik,
+                        p.naziv as posiljatelj_naziv,
+                        DATE_FORMAT(p.zaprimljeno_datum, '%d.%m.%Y') as zaprimljeno_datum,
+                        DATE_FORMAT(p.tstamp_created, '%d.%m.%Y %H:%i') as datum_otvaranja,
+                        CONCAT(u_kreator.firstname, ' ', u_kreator.lastname) as kreator_predmeta
+                    FROM " . MAIN_DB_PREFIX . "a_arhiva a
+                    LEFT JOIN " . MAIN_DB_PREFIX . "a_arhivska_gradiva ag ON a.fk_arhivska_gradiva = ag.rowid
+                    LEFT JOIN " . MAIN_DB_PREFIX . "user u_arhiva ON a.fk_user_arhiva = u_arhiva.rowid
+                    LEFT JOIN " . MAIN_DB_PREFIX . "a_predmet p ON a.ID_predmeta = p.ID_predmeta
+                    LEFT JOIN " . MAIN_DB_PREFIX . "user u_kreator ON p.fk_user_creat = u_kreator.rowid
+                    WHERE a.ID_arhive = " . (int)$arhiva_id;
+
+            $resql = $db->query($sql);
+            if ($resql && $obj = $db->fetch_object($resql)) {
+                // Calculate expiration info
+                $expirationInfo = self::calculateExpirationInfo(
+                    $obj->datum_arhiviranja_full, 
+                    $obj->rok_cuvanja_godina
+                );
+                
+                // Count documents in archive
+                $relative_path = self::getPredmetFolderPath($obj->ID_predmeta, $db);
+                $archive_path = str_replace('SEUP/Predmeti/', 'SEUP/Arhiva/', $relative_path);
+                
+                $sql_docs = "SELECT COUNT(*) as count FROM " . MAIN_DB_PREFIX . "ecm_files 
+                            WHERE filepath = '" . $db->escape(rtrim($archive_path, '/')) . "'";
+                $resql_docs = $db->query($sql_docs);
+                $broj_dokumenata = 0;
+                if ($resql_docs && $obj_docs = $db->fetch_object($resql_docs)) {
+                    $broj_dokumenata = (int)$obj_docs->count;
+                }
+                
+                $details = (array)$obj;
+                $details['istek_datum'] = $expirationInfo['istek_datum'];
+                $details['preostalo_godina'] = $expirationInfo['preostalo_godina'];
+                $details['preostalo_text'] = $expirationInfo['preostalo_text'];
+                $details['broj_dokumenata'] = $broj_dokumenata;
+                
+                return [
+                    'success' => true,
+                    'details' => $details
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'error' => 'Arhiva nije pronađena'
+                ];
+            }
+
+        } catch (Exception $e) {
+            dol_syslog("Error getting arhiva details: " . $e->getMessage(), LOG_ERR);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
     /**
      * Restore predmet from archive
      */
