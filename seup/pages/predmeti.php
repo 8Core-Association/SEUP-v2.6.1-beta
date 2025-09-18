@@ -89,13 +89,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $predmet_id = GETPOST('predmet_id', 'int');
         $razlog = GETPOST('razlog', 'alphanohtml');
+        $fk_arhivska_gradiva = GETPOST('fk_arhivska_gradiva', 'int');
+        $postupak_po_isteku = GETPOST('postupak_po_isteku', 'alpha');
         
         if (!$predmet_id) {
             echo json_encode(['success' => false, 'error' => 'Missing predmet ID']);
             exit;
         }
         
-        $result = Predmet_helper::archivePredmet($db, $conf, $user, $predmet_id, $razlog);
+        // Ensure new archive table structure
+        Predmet_helper::ensureArhivaTableStructure($db);
+        
+        $result = Predmet_helper::archivePredmetNew($db, $conf, $user, $predmet_id, $razlog, $fk_arhivska_gradiva, $postupak_po_isteku);
         echo json_encode($result);
         exit;
     }
@@ -391,6 +396,38 @@ print '<i class="fas fa-exclamation-triangle me-2"></i>';
 print 'Predmet će biti premješten u arhivu. Svi dokumenti će biti premješteni u arhivsku mapu.';
 print '</div>';
 print '</div>';
+
+// Get arhivska gradiva options
+$arhivskaGradivaOptions = Predmet_helper::getArhivskaGradivaOptions($db);
+
+print '<div class="seup-form-group">';
+print '<label for="arhivskaGradiva" class="seup-label"><i class="fas fa-archive me-2"></i>Vrsta arhivske građe *</label>';
+print '<select id="arhivskaGradiva" class="seup-select" required>';
+print '<option value="">-- Odaberite vrstu građe --</option>';
+foreach ($arhivskaGradivaOptions as $gradivo) {
+    print '<option value="' . $gradivo->rowid . '">' . htmlspecialchars($gradivo->oznaka . ' - ' . $gradivo->vrsta_gradiva) . '</option>';
+}
+print '</select>';
+print '</div>';
+
+print '<div class="seup-form-group">';
+print '<label class="seup-label"><i class="fas fa-clock me-2"></i>Postupak po isteku roka čuvanja *</label>';
+print '<div class="seup-radio-group">';
+print '<label class="seup-radio-option">';
+print '<input type="radio" name="postupak_po_isteku" value="predaja_arhivu" checked>';
+print '<span class="seup-radio-label">🏛️ Predaja arhivu</span>';
+print '</label>';
+print '<label class="seup-radio-option">';
+print '<input type="radio" name="postupak_po_isteku" value="ibp_izlucivanje">';
+print '<span class="seup-radio-label">📋 IBP izlučivanje</span>';
+print '</label>';
+print '<label class="seup-radio-option">';
+print '<input type="radio" name="postupak_po_isteku" value="ibp_brisanje">';
+print '<span class="seup-radio-label">🗑️ IBP trajno brisanje</span>';
+print '</label>';
+print '</div>';
+print '</div>';
+
 print '<div class="seup-form-group">';
 print '<label for="archiveRazlog" class="seup-label">Razlog arhiviranja (opcionalno)</label>';
 print '<textarea id="archiveRazlog" class="seup-textarea" rows="3" placeholder="Unesite razlog arhiviranja..."></textarea>';
@@ -603,14 +640,24 @@ document.addEventListener("DOMContentLoaded", function() {
     function closeArchiveModal() {
         document.getElementById('archiveModal').classList.remove('show');
         document.getElementById('archiveRazlog').value = '';
+        document.getElementById('arhivskaGradiva').value = '';
+        document.querySelector('input[name="postupak_po_isteku"][value="predaja_arhivu"]').checked = true;
         currentArchiveId = null;
     }
 
     function confirmArchive() {
         if (!currentArchiveId) return;
         
+        const arhivskaGradiva = document.getElementById('arhivskaGradiva').value;
+        const postupakPoIsteku = document.querySelector('input[name="postupak_po_isteku"]:checked').value;
         const razlog = document.getElementById('archiveRazlog').value.trim();
         const confirmBtn = document.getElementById('confirmArchiveBtn');
+        
+        // Validation
+        if (!arhivskaGradiva) {
+            showMessage('Molimo odaberite vrstu arhivske građe', 'error');
+            return;
+        }
         
         // Add loading state
         confirmBtn.classList.add('seup-loading');
@@ -618,6 +665,8 @@ document.addEventListener("DOMContentLoaded", function() {
         const formData = new FormData();
         formData.append('action', 'archive_predmet');
         formData.append('predmet_id', currentArchiveId);
+        formData.append('fk_arhivska_gradiva', arhivskaGradiva);
+        formData.append('postupak_po_isteku', postupakPoIsteku);
         if (razlog) {
             formData.append('razlog', razlog);
         }
@@ -1215,6 +1264,47 @@ document.addEventListener("DOMContentLoaded", function() {
   color: var(--warning-700);
   display: flex;
   align-items: center;
+}
+
+/* Radio group styling */
+.seup-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.seup-radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: white;
+}
+
+.seup-radio-option:hover {
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+.seup-radio-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary-500);
+}
+
+.seup-radio-option input[type="radio"]:checked + .seup-radio-label {
+  font-weight: var(--font-semibold);
+  color: var(--primary-700);
+}
+
+.seup-radio-label {
+  font-size: var(--text-sm);
+  color: var(--secondary-700);
+  cursor: pointer;
 }
 
 .seup-archive-naziv {

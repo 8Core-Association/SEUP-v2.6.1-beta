@@ -737,7 +737,7 @@ class Predmet_helper
             // Get predmet details
             $sql = "SELECT 
                         p.klasa_br, p.sadrzaj, p.dosje_broj, p.godina, p.predmet_rbr,
-                        p.naziv_predmeta
+                        p.naziv_predmeta, p.vrijeme_cuvanja
                     FROM " . MAIN_DB_PREFIX . "a_predmet p
                     WHERE p.ID_predmeta = " . (int)$predmet_id;
 
@@ -847,6 +847,228 @@ class Predmet_helper
         }
     }
 
+    /**
+     * Archive predmet with new structure (arhivska gradiva integration)
+     */
+    public static function archivePredmetNew($db, $conf, $user, $predmet_id, $razlog = '', $fk_arhivska_gradiva = null, $postupak_po_isteku = 'predaja_arhivu')
+    {
+        try {
+            $db->begin();
+
+            // Get predmet details with vrijeme_cuvanja
+            $sql = "SELECT 
+                        p.klasa_br, p.sadrzaj, p.dosje_broj, p.godina, p.predmet_rbr,
+                        p.naziv_predmeta, p.vrijeme_cuvanja
+                    FROM " . MAIN_DB_PREFIX . "a_predmet p
+                    WHERE p.ID_predmeta = " . (int)$predmet_id;
+
+            $resql = $db->query($sql);
+            if (!$resql || !($predmet = $db->fetch_object($resql))) {
+                throw new Exception("Predmet not found");
+            }
+
+            $klasa = $predmet->klasa_br . '-' . $predmet->sadrzaj . '/' . 
+                     $predmet->godina . '-' . $predmet->dosje_broj . '/' . 
+                     $predmet->predmet_rbr;
+
+            // Generate archive location
+            $archive_location = 'ecm/SEUP/Arhiva/' . self::generateFolderName(
+                $predmet->klasa_br,
+                $predmet->sadrzaj,
+                $predmet->dosje_broj,
+                $predmet->godina,
+                $predmet->predmet_rbr,
+                $predmet->naziv_predmeta
+            ) . '/';
+
+            // Count documents
+            $current_path = self::getPredmetFolderPath($predmet_id, $db);
+            $sql = "SELECT COUNT(*) as count FROM " . MAIN_DB_PREFIX . "ecm_files 
+                    WHERE filepath = '" . $db->escape(rtrim($current_path, '/')) . "'
+                    AND entity = " . $conf->entity;
+            $resql = $db->query($sql);
+            $doc_count = 0;
+            if ($resql && $obj = $db->fetch_object($resql)) {
+                $doc_count = $obj->count;
+            }
+
+            // Create new archive record with extended structure
+            $sql = "INSERT INTO " . MAIN_DB_PREFIX . "a_arhiva (
+                        ID_predmeta, 
+                        klasa_predmeta, 
+                        naziv_predmeta, 
+                        lokacija_arhive, 
+                        broj_dokumenata,
+                        razlog_arhiviranja, 
+                        fk_user_arhivirao,
+                        fk_arhivska_gradiva,
+                        postupak_po_isteku,
+                        rok_cuvanja_godina
+                    ) VALUES (
+                        " . (int)$predmet_id . ",
+                        '" . $db->escape($klasa) . "',
+                        '" . $db->escape($predmet->naziv_predmeta) . "',
+                        '" . $db->escape($archive_location) . "',
+                        " . (int)$doc_count . ",
+                        '" . $db->escape($razlog) . "',
+                        " . (int)$user->id . ",
+                        " . ($fk_arhivska_gradiva ? (int)$fk_arhivska_gradiva : "NULL") . ",
+                        '" . $db->escape($postupak_po_isteku) . "',
+                        " . (int)$predmet->vrijeme_cuvanja . "
+                    )";
+
+            $result = $db->query($sql);
+            if (!$result) {
+                throw new Exception("Failed to create archive record: " . $db->lasterror());
+            }
+
+            // Move documents to archive folder
+            $source_dir = DOL_DATA_ROOT . '/ecm/' . $current_path;
+            $archive_dir = DOL_DATA_ROOT . '/' . $archive_location;
+            
+            $files_moved = 0;
+            if (is_dir($source_dir)) {
+                // Create archive directory
+                if (!is_dir($archive_dir)) {
+                    dol_mkdir($archive_dir);
+                }
+                
+                // Move files
+                $files = scandir($source_dir);
+                foreach ($files as $file) {
+                    if ($file !== '.' && $file !== '..') {
+                        $source_file = $source_dir . $file;
+                        $archive_file = $archive_dir . $file;
+                        
+                        if (is_file($source_file)) {
+                            if (rename($source_file, $archive_file)) {
+                                $files_moved++;
+                            }
+                        }
+                    }
+                }
+                
+                // Remove empty source directory
+                if (count(scandir($source_dir)) == 2) { // Only . and ..
+                    rmdir($source_dir);
+                }
+            }
+
+            // Update ECM file paths
+            $sql = "UPDATE " . MAIN_DB_PREFIX . "ecm_files 
+                    SET filepath = '" . $db->escape(rtrim($archive_location, '/')) . "'
+                    WHERE filepath = '" . $db->escape(rtrim($current_path, '/')) . "'
+                    AND entity = " . $conf->entity;
+            $db->query($sql);
+
+            $db->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Predmet uspješno arhiviran s novom strukturom',
+                'files_moved' => $files_moved,
+                'archive_location' => $archive_location
+            ];
+
+        } catch (Exception $e) {
+            $db->rollback();
+            dol_syslog("Error archiving predmet (new): " . $e->getMessage(), LOG_ERR);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Ensure a_arhiva table has new structure
+     */
+    public static function ensureArhivaTableStructure($db)
+    {
+        try {
+            // Check if new columns exist
+            $sql = "SHOW COLUMNS FROM " . MAIN_DB_PREFIX . "a_arhiva LIKE 'fk_arhivska_gradiva'";
+            $result = $db->query($sql);
+            
+            if ($db->num_rows($result) == 0) {
+                dol_syslog("Adding new columns to a_arhiva table", LOG_INFO);
+                
+                // Add new columns for extended archive structure
+                $sql = "ALTER TABLE " . MAIN_DB_PREFIX . "a_arhiva 
+                        ADD COLUMN fk_arhivska_gradiva INT(11) DEFAULT NULL COMMENT 'Link to arhivska gradiva',
+                        ADD COLUMN postupak_po_isteku ENUM('predaja_arhivu','ibp_izlucivanje','ibp_brisanje') DEFAULT 'predaja_arhivu' COMMENT 'Postupak po isteku roka',
+                        ADD COLUMN rok_cuvanja_godina INT(11) DEFAULT 0 COMMENT 'Rok čuvanja u godinama',
+                        ADD KEY fk_arhivska_gradiva_idx (fk_arhivska_gradiva)";
+                
+                $result = $db->query($sql);
+                if ($result) {
+                    dol_syslog("New archive columns added successfully", LOG_INFO);
+                    return true;
+                } else {
+                    dol_syslog("Failed to add new archive columns: " . $db->lasterror(), LOG_ERR);
+                    return false;
+                }
+            }
+            
+            return true; // Columns already exist
+            
+        } catch (Exception $e) {
+            dol_syslog("Error ensuring archive table structure: " . $e->getMessage(), LOG_ERR);
+            return false;
+        }
+    }
+
+    /**
+     * Calculate expiration date for archived predmet
+     */
+    public static function calculateExpirationInfo($datum_arhiviranja, $rok_cuvanja_godina)
+    {
+        if ($rok_cuvanja_godina == 0) {
+            return [
+                'istek_datum' => null,
+                'istek_text' => 'Trajno',
+                'preostalo_godina' => null,
+                'preostalo_text' => 'Trajno čuvanje'
+            ];
+        }
+
+        $arhiva_timestamp = strtotime($datum_arhiviranja);
+        $istek_timestamp = strtotime("+{$rok_cuvanja_godina} years", $arhiva_timestamp);
+        $now = time();
+        
+        $preostalo_sekundi = $istek_timestamp - $now;
+        $preostalo_godina = $preostalo_sekundi / (365.25 * 24 * 60 * 60);
+        
+        return [
+            'istek_datum' => $istek_timestamp,
+            'istek_text' => date('d.m.y', $istek_timestamp),
+            'preostalo_godina' => $preostalo_godina,
+            'preostalo_text' => $preostalo_godina > 0 
+                ? sprintf('%.1f god', $preostalo_godina)
+                : 'Istekao'
+        ];
+    }
+
+    /**
+     * Get arhivska gradiva options for dropdown
+     */
+    public static function getArhivskaGradivaOptions($db)
+    {
+        $options = [];
+        
+        $sql = "SELECT rowid, oznaka, vrsta_gradiva 
+                FROM " . MAIN_DB_PREFIX . "a_arhivska_gradiva 
+                ORDER BY oznaka ASC";
+        
+        $resql = $db->query($sql);
+        if ($resql) {
+            while ($obj = $db->fetch_object($resql)) {
+                $options[] = $obj;
+            }
+        }
+        
+        return $options;
+    }
     /**
      * Restore predmet from archive
      */

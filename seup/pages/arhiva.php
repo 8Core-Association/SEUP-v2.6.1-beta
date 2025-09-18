@@ -69,6 +69,9 @@ require_once __DIR__ . '/../class/predmet_helper.class.php';
 // Ensure database tables exist
 Predmet_helper::createSeupDatabaseTables($db);
 
+// Ensure new archive table structure
+Predmet_helper::ensureArhivaTableStructure($db);
+
 // Load translation files
 $langs->loadLangs(array("seup@seup"));
 
@@ -133,12 +136,17 @@ $sql = "SELECT
             a.ID_predmeta,
             a.klasa_predmeta,
             a.naziv_predmeta,
-            a.broj_dokumenata,
             a.razlog_arhiviranja,
-            DATE_FORMAT(a.datum_arhiviranja, '%d.%m.%Y %H:%i') as datum_arhiviranja,
+            a.postupak_po_isteku,
+            a.rok_cuvanja_godina,
+            DATE_FORMAT(a.datum_arhiviranja, '%d.%m.%y') as datum_arhiviranja_short,
+            a.datum_arhiviranja,
+            ag.oznaka as arhivska_oznaka,
+            ag.vrsta_gradiva,
             CONCAT(u.firstname, ' ', u.lastname) as arhivirao_korisnik
         FROM " . MAIN_DB_PREFIX . "a_arhiva a
         LEFT JOIN " . MAIN_DB_PREFIX . "user u ON a.fk_user_arhivirao = u.rowid
+        LEFT JOIN " . MAIN_DB_PREFIX . "a_arhivska_gradiva ag ON a.fk_arhivska_gradiva = ag.rowid
         WHERE a.status_arhive = 'active'
         ORDER BY {$sortField} {$sortOrder}";
 
@@ -225,12 +233,20 @@ foreach ($klase as $klasa) {
     print '<option value="' . htmlspecialchars($klasa) . '">' . htmlspecialchars($klasa) . '</option>';
 }
 print '</select>';
-print '<select id="filterDokumenti" class="seup-filter-select">';
-print '<option value="">Svi dokumenti</option>';
-print '<option value="0">Bez dokumenata</option>';
-print '<option value="1-5">1-5 dokumenata</option>';
-print '<option value="6-10">6-10 dokumenata</option>';
-print '<option value="10+">10+ dokumenata</option>';
+print '<select id="filterVrstaGradiva" class="seup-filter-select">';
+print '<option value="">Sve vrste građe</option>';
+// Add unique vrste gradiva from arhivirani
+$vrsteGradiva = array_unique(array_filter(array_column($arhivirani, 'vrsta_gradiva')));
+sort($vrsteGradiva);
+foreach ($vrsteGradiva as $vrsta) {
+    print '<option value="' . htmlspecialchars($vrsta) . '">' . htmlspecialchars($vrsta) . '</option>';
+}
+print '</select>';
+print '<select id="filterIstek" class="seup-filter-select">';
+print '<option value="">Svi rokovi</option>';
+print '<option value="istekao">Istekao rok</option>';
+print '<option value="uskoro">Uskoro istek (< 1 god)</option>';
+print '<option value="trajno">Trajno čuvanje</option>';
 print '</select>';
 print '<select id="filterDatum" class="seup-filter-select">';
 print '<option value="">Svi datumi</option>';
@@ -268,12 +284,14 @@ function sortableHeader($field, $label, $currentSort, $currentOrder, $icon = '')
 }
 
 // Generate sortable headers with icons
-print sortableHeader('ID_arhive', 'ID', $sortField, $sortOrder, 'fas fa-hashtag');
+print '<th class="seup-table-th"><i class="fas fa-tag me-2"></i>Ozn.</th>';
+print '<th class="seup-table-th"><i class="fas fa-archive me-2"></i>Vrsta Građe</th>';
 print sortableHeader('klasa_predmeta', 'Klasa', $sortField, $sortOrder, 'fas fa-layer-group');
-print sortableHeader('naziv_predmeta', 'Naziv Predmeta', $sortField, $sortOrder, 'fas fa-heading');
-print sortableHeader('broj_dokumenata', 'Dokumenti', $sortField, $sortOrder, 'fas fa-file-alt');
-print sortableHeader('datum_arhiviranja', 'Datum Arhiviranja', $sortField, $sortOrder, 'fas fa-calendar');
-print '<th class="seup-table-th"><i class="fas fa-user me-2"></i>Arhivirao</th>';
+print sortableHeader('naziv_predmeta', 'Naziv predmeta', $sortField, $sortOrder, 'fas fa-heading');
+print sortableHeader('datum_arhiviranja', 'Datum', $sortField, $sortOrder, 'fas fa-calendar');
+print '<th class="seup-table-th"><i class="fas fa-clock me-2"></i>Čuvanje</th>';
+print '<th class="seup-table-th"><i class="fas fa-hourglass me-2"></i>Istek</th>';
+print '<th class="seup-table-th"><i class="fas fa-cogs me-2"></i>Po isteku</th>';
 print '<th class="seup-table-th"><i class="fas fa-cogs me-2"></i>Akcije</th>';
 print '</tr>';
 print '</thead>';
@@ -281,39 +299,100 @@ print '<tbody class="seup-table-body">';
 
 if (count($arhivirani)) {
     foreach ($arhivirani as $index => $arhiva) {
+        // Calculate expiration info
+        $expirationInfo = Predmet_helper::calculateExpirationInfo(
+            $arhiva->datum_arhiviranja, 
+            $arhiva->rok_cuvanja_godina
+        );
+        
         $rowClass = ($index % 2 === 0) ? 'seup-table-row-even' : 'seup-table-row-odd';
         print '<tr class="seup-table-row ' . $rowClass . '" data-id="' . $arhiva->ID_arhive . '" data-predmet-id="' . $arhiva->ID_predmeta . '">';
         
+        // 1. Oznaka
         print '<td class="seup-table-td">';
-        print '<span class="seup-badge seup-badge-neutral">' . $arhiva->ID_arhive . '</span>';
+        if ($arhiva->arhivska_oznaka) {
+            print '<span class="seup-badge seup-badge-warning">' . htmlspecialchars($arhiva->arhivska_oznaka) . '</span>';
+        } else {
+            print '<span class="seup-badge seup-badge-neutral">—</span>';
+        }
         print '</td>';
         
+        // 2. Vrsta Građe
+        print '<td class="seup-table-td">';
+        if ($arhiva->vrsta_gradiva) {
+            print '<div class="seup-vrsta-gradiva" title="' . htmlspecialchars($arhiva->vrsta_gradiva) . '">';
+            print '<i class="fas fa-archive me-2"></i>';
+            print dol_trunc($arhiva->vrsta_gradiva, 20);
+            print '</div>';
+        } else {
+            print '<span class="seup-empty-field">—</span>';
+        }
+        print '</td>';
+        
+        // 3. Klasa
         print '<td class="seup-table-td">';
         print '<span class="seup-badge seup-badge-archive seup-klasa-link">' . htmlspecialchars($arhiva->klasa_predmeta) . '</span>';
         print '</td>';
         
+        // 4. Naziv predmeta
         print '<td class="seup-table-td">';
         print '<div class="seup-naziv-cell" title="' . htmlspecialchars($arhiva->naziv_predmeta) . '">';
-        print dol_trunc($arhiva->naziv_predmeta, 50);
+        print dol_trunc($arhiva->naziv_predmeta, 30);
         print '</div>';
         print '</td>';
         
-        print '<td class="seup-table-td">';
-        if ($arhiva->broj_dokumenata > 0) {
-            print '<span class="seup-badge seup-badge-success">';
-            print '<i class="fas fa-file-alt me-1"></i>' . $arhiva->broj_dokumenata;
-            print '</span>';
-        } else {
-            print '<span class="seup-badge seup-badge-neutral">';
-            print '<i class="fas fa-file-alt me-1"></i>0';
-            print '</span>';
-        }
-        print '</td>';
-        
+        // 5. Datum arhiviranja
         print '<td class="seup-table-td">';
         print '<div class="seup-date-info">';
         print '<i class="fas fa-calendar me-2"></i>';
-        print $arhiva->datum_arhiviranja;
+        print $arhiva->datum_arhiviranja_short;
+        print '</div>';
+        print '</td>';
+        
+        // 6. Rok čuvanja
+        print '<td class="seup-table-td">';
+        if ($arhiva->rok_cuvanja_godina == 0) {
+            print '<span class="seup-badge seup-badge-success"><i class="fas fa-infinity me-1"></i>Trajno</span>';
+        } else {
+            print '<span class="seup-badge seup-badge-info"><i class="fas fa-clock me-1"></i>' . $arhiva->rok_cuvanja_godina . ' god</span>';
+        }
+        print '</td>';
+        
+        // 7. Istek roka
+        print '<td class="seup-table-td">';
+        if ($expirationInfo['istek_datum']) {
+            $badgeClass = $expirationInfo['preostalo_godina'] > 1 ? 'seup-badge-success' : 
+                         ($expirationInfo['preostalo_godina'] > 0 ? 'seup-badge-warning' : 'seup-badge-error');
+            print '<span class="seup-badge ' . $badgeClass . '">';
+            print '<i class="fas fa-hourglass me-1"></i>' . $expirationInfo['preostalo_text'];
+            print '</span>';
+        } else {
+            print '<span class="seup-badge seup-badge-success"><i class="fas fa-infinity me-1"></i>Trajno</span>';
+        }
+        print '</td>';
+        
+        // 8. Po isteku
+        print '<td class="seup-table-td">';
+        $postupakIcons = [
+            'predaja_arhivu' => 'fas fa-building',
+            'ibp_izlucivanje' => 'fas fa-list-alt', 
+            'ibp_brisanje' => 'fas fa-trash'
+        ];
+        $postupakLabels = [
+            'predaja_arhivu' => 'Arhiv',
+            'ibp_izlucivanje' => 'IBP izlučivanje',
+            'ibp_brisanje' => 'IBP brisanje'
+        ];
+        $postupakColors = [
+            'predaja_arhivu' => 'seup-badge-primary',
+            'ibp_izlucivanje' => 'seup-badge-warning',
+            'ibp_brisanje' => 'seup-badge-error'
+        ];
+        
+        $postupak = $arhiva->postupak_po_isteku ?: 'predaja_arhivu';
+        print '<span class="seup-badge ' . $postupakColors[$postupak] . '" title="' . $postupakLabels[$postupak] . '">';
+        print '<i class="' . $postupakIcons[$postupak] . ' me-1"></i>' . $postupakLabels[$postupak];
+        print '</span>';
         print '</div>';
         print '</td>';
         
@@ -340,7 +419,7 @@ if (count($arhivirani)) {
     }
 } else {
     print '<tr class="seup-table-row">';
-    print '<td colspan="7" class="seup-table-empty">';
+    print '<td colspan="9" class="seup-table-empty">';
     print '<div class="seup-empty-state">';
     print '<i class="fas fa-archive seup-empty-icon"></i>';
     print '<h4 class="seup-empty-title">Nema arhiviranih predmeta</h4>';
@@ -459,7 +538,8 @@ document.addEventListener("DOMContentLoaded", function() {
     // Enhanced search and filter functionality
     const searchInput = document.getElementById('searchInput');
     const filterKlasa = document.getElementById('filterKlasa');
-    const filterDokumenti = document.getElementById('filterDokumenti');
+    const filterVrstaGradiva = document.getElementById('filterVrstaGradiva');
+    const filterIstek = document.getElementById('filterIstek');
     const filterDatum = document.getElementById('filterDatum');
     const tableRows = document.querySelectorAll('.seup-table-row[data-id]');
     const visibleCountSpan = document.getElementById('visibleCount');
@@ -467,7 +547,8 @@ document.addEventListener("DOMContentLoaded", function() {
     function filterTable() {
         const searchTerm = searchInput.value.toLowerCase();
         const selectedKlasa = filterKlasa.value;
-        const selectedDokumenti = filterDokumenti.value;
+        const selectedVrstaGradiva = filterVrstaGradiva.value;
+        const selectedIstek = filterIstek.value;
         const selectedDatum = filterDatum.value;
         let visibleCount = 0;
 
@@ -481,28 +562,32 @@ document.addEventListener("DOMContentLoaded", function() {
             // Check klasa filter
             let matchesKlasa = true;
             if (selectedKlasa) {
-                const klasaCell = cells[1]; // klasa column
+                const klasaCell = cells[2]; // klasa column (now 3rd)
                 matchesKlasa = klasaCell.textContent.trim() === selectedKlasa;
             }
 
-            // Check dokumenti filter
-            let matchesDokumenti = true;
-            if (selectedDokumenti) {
-                const dokumentiCell = cells[3]; // broj_dokumenata column
-                const brojDokumenata = parseInt(dokumentiCell.textContent.match(/\d+/)[0]);
+            // Check vrsta gradiva filter
+            let matchesVrstaGradiva = true;
+            if (selectedVrstaGradiva) {
+                const vrstaCell = cells[1]; // vrsta gradiva column
+                matchesVrstaGradiva = vrstaCell.textContent.includes(selectedVrstaGradiva);
+            }
+
+            // Check istek filter
+            let matchesIstek = true;
+            if (selectedIstek) {
+                const istekCell = cells[6]; // istek column
+                const istekText = istekCell.textContent.toLowerCase();
                 
-                switch (selectedDokumenti) {
-                    case '0':
-                        matchesDokumenti = brojDokumenata === 0;
+                switch (selectedIstek) {
+                    case 'istekao':
+                        matchesIstek = istekText.includes('istekao');
                         break;
-                    case '1-5':
-                        matchesDokumenti = brojDokumenata >= 1 && brojDokumenata <= 5;
+                    case 'uskoro':
+                        matchesIstek = istekText.includes('god') && !istekText.includes('trajno');
                         break;
-                    case '6-10':
-                        matchesDokumenti = brojDokumenata >= 6 && brojDokumenata <= 10;
-                        break;
-                    case '10+':
-                        matchesDokumenti = brojDokumenata > 10;
+                    case 'trajno':
+                        matchesIstek = istekText.includes('trajno');
                         break;
                 }
             }
@@ -510,14 +595,15 @@ document.addEventListener("DOMContentLoaded", function() {
             // Check datum filter
             let matchesDatum = true;
             if (selectedDatum) {
-                const datumCell = cells[4]; // datum_arhiviranja column
+                const datumCell = cells[4]; // datum column
                 const datumText = datumCell.textContent;
                 const today = new Date();
                 
-                // Parse date from DD.MM.YYYY HH:MM format
-                const dateParts = datumText.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+                // Parse date from DD.MM.YY format
+                const dateParts = datumText.match(/(\d{2})\.(\d{2})\.(\d{2})/);
                 if (dateParts) {
-                    const arhivaDate = new Date(dateParts[3], dateParts[2] - 1, dateParts[1]);
+                    const fullYear = 2000 + parseInt(dateParts[3]);
+                    const arhivaDate = new Date(fullYear, dateParts[2] - 1, dateParts[1]);
                     
                     switch (selectedDatum) {
                         case 'today':
@@ -538,7 +624,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 }
             }
 
-            if (matchesSearch && matchesKlasa && matchesDokumenti && matchesDatum) {
+            if (matchesSearch && matchesKlasa && matchesVrstaGradiva && matchesIstek && matchesDatum) {
                 row.style.display = '';
                 visibleCount++;
                 // Add staggered animation
@@ -564,8 +650,12 @@ document.addEventListener("DOMContentLoaded", function() {
         filterKlasa.addEventListener('change', filterTable);
     }
 
-    if (filterDokumenti) {
-        filterDokumenti.addEventListener('change', filterTable);
+    if (filterVrstaGradiva) {
+        filterVrstaGradiva.addEventListener('change', filterTable);
+    }
+
+    if (filterIstek) {
+        filterIstek.addEventListener('change', filterTable);
     }
     
     if (filterDatum) {
@@ -849,6 +939,70 @@ document.addEventListener("DOMContentLoaded", function() {
   font-weight: var(--font-semibold);
 }
 
+/* New badge variants for archive page */
+.seup-badge-info {
+  background: var(--primary-100);
+  color: var(--primary-800);
+}
+
+.seup-badge-error {
+  background: var(--error-100);
+  color: var(--error-800);
+}
+
+/* Vrsta gradiva styling */
+.seup-vrsta-gradiva {
+  display: flex;
+  align-items: center;
+  font-size: var(--text-sm);
+  color: var(--secondary-700);
+  font-weight: var(--font-medium);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Compact table styling for more columns */
+.seup-table-th {
+  padding: var(--space-3) var(--space-2);
+  font-size: 11px;
+}
+
+.seup-table-td {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+}
+
+/* Responsive adjustments for more columns */
+@media (max-width: 1200px) {
+  .seup-table {
+    font-size: 11px;
+  }
+  
+  .seup-table-th,
+  .seup-table-td {
+    padding: var(--space-2) var(--space-1);
+  }
+  
+  .seup-naziv-cell {
+    max-width: 120px;
+  }
+  
+  .seup-vrsta-gradiva {
+    max-width: 100px;
+  }
+}
+
+@media (max-width: 768px) {
+  .seup-table-container {
+    overflow-x: auto;
+  }
+  
+  .seup-table {
+    min-width: 1000px;
+  }
+}
 /* Restore Modal Styles */
 .seup-restore-info {
   background: var(--success-50);
